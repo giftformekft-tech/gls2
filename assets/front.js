@@ -1,4 +1,23 @@
 (function($){
+    var shippingCatalog = Array.isArray(window.WOO_MYGLS && window.WOO_MYGLS.shippingCatalog) ? window.WOO_MYGLS.shippingCatalog : [];
+    var shippingCatalogById = {};
+    var shippingCatalogByBase = {};
+    shippingCatalog.forEach(function(entry){
+        if (!entry || !entry.id) {
+            return;
+        }
+        var id = String(entry.id);
+        shippingCatalogById[id] = entry;
+        var base = String(entry.base || '');
+        if (base) {
+            if (!shippingCatalogByBase[base]) {
+                shippingCatalogByBase[base] = [];
+            }
+            shippingCatalogByBase[base].push(entry);
+        }
+    });
+    var shippingKeywords = ['csomagpont','automata','parcel','gls'];
+
     function initModal(){
         var $m = $('#gls-map-modal');
         if ($m.data('ready')) return;
@@ -59,24 +78,200 @@
         initModal();
         $('#gls-map-modal').show();
     });
-})(jQuery);
-// Client-side guard: require PSD if GLS Csomagpont/Automata selected
-jQuery(function($){
-    $('form.checkout').on('checkout_place_order', function(){
-        try {
-            var need = false;
-            // Read selected shipping labels/ids
-            $('[name^="shipping_method"]').each(function(){
-                var v = ($(this).val()||'').toLowerCase();
-                if (v.indexOf('csomagpont')>=0 || v.indexOf('automata')>=0 || v.indexOf('parcel')>=0) {
-                    need = true;
+
+    function getSelectedShippingMethods(){
+        var out = [];
+        $('[name^="shipping_method"]').each(function(){
+            var $el = $(this);
+            var tag = ($el.prop('tagName') || '').toLowerCase();
+            if ($el.is(':radio') || $el.is(':checkbox')){
+                if ($el.is(':checked')){
+                    out.push(String($el.val() || ''));
                 }
-            });
-            if (need && !$('#gls_psd_id').val()){
-                alert('Kérjük, válassz GLS Csomagpontot a térképen!');
-                return false;
+                return;
             }
-        } catch(e){}
-        return true;
+            if (tag === 'select'){
+                var val = $el.val();
+                if (Array.isArray(val)){
+                    val.forEach(function(v){ out.push(String(v || '')); });
+                } else if (val){
+                    out.push(String(val));
+                }
+                return;
+            }
+            var value = $el.val();
+            if (value){
+                out.push(String(value));
+            }
+        });
+        return out;
+    }
+
+    function getSelectedShippingLabels(){
+        var labels = [];
+        $('[name^="shipping_method"]').each(function(){
+            var $el = $(this);
+            if (($el.is(':radio') || $el.is(':checkbox')) && !$el.is(':checked')){
+                return;
+            }
+            var label = '';
+            var $container = $el.closest('li');
+            if ($el.attr('id')){
+                var forSelector = 'label[for="'+$el.attr('id')+'"]';
+                var $label = $(forSelector).first();
+                if ($label.length){
+                    label = $label.text();
+                }
+            }
+            if (!label && $container.length){
+                var $alt = $container.find('.woocommerce-shipping-method__label, .wc-block-components-radio-control__label').first();
+                if ($alt.length){
+                    label = $alt.text();
+                }
+            }
+            if (!label){
+                var labelledBy = $el.attr('aria-labelledby');
+                if (labelledBy){
+                    label = $('#'+labelledBy).text();
+                }
+            }
+            if (!label && $container.length){
+                label = $container.text();
+            }
+            if (label){
+                labels.push($.trim(label));
+            }
+        });
+        return labels;
+    }
+
+    function methodRequiresPsd(){
+        var selected = getSelectedShippingMethods();
+        var configured = Array.isArray(WOO_MYGLS.shippingMethods) ? WOO_MYGLS.shippingMethods : [];
+        var configuredBase = configured.map(function(v){
+            return String(v || '').split(':')[0];
+        }).filter(function(v){ return v; });
+        var keywords = shippingKeywords;
+        var need = false;
+        if (selected.length){
+            if (configured.length){
+                need = selected.some(function(v){
+                    if (configured.indexOf(v) !== -1) {
+                        return true;
+                    }
+                    var base = String(v || '').split(':')[0];
+                    return base && configuredBase.indexOf(base) !== -1;
+                });
+            }
+            if (!need){
+                need = selected.some(function(v){
+                    var lower = String(v || '').toLowerCase();
+                    return keywords.some(function(keyword){
+                        return keyword && lower.indexOf(keyword) >= 0;
+                    });
+                });
+            }
+        }
+        if (!need){
+            var labels = getSelectedShippingLabels();
+            if (!labels.length && selected.length){
+                selected.forEach(function(rateId){
+                    var entry = shippingCatalogById[rateId];
+                    if (entry){
+                        if (entry.label){ labels.push(entry.label); }
+                        if (entry.title && entry.title !== entry.label){ labels.push(entry.title); }
+                        if (entry.method_title && entry.method_title !== entry.title && entry.method_title !== entry.label){ labels.push(entry.method_title); }
+                    } else {
+                        var base = String(rateId || '').split(':')[0];
+                        if (base && Array.isArray(shippingCatalogByBase[base])){
+                            shippingCatalogByBase[base].forEach(function(item){
+                                if (!item) return;
+                                if (item.label){ labels.push(item.label); }
+                                if (item.title && item.title !== item.label){ labels.push(item.title); }
+                                if (item.method_title && item.method_title !== item.title && item.method_title !== item.label){ labels.push(item.method_title); }
+                            });
+                        }
+                    }
+                });
+            }
+            need = labels.some(function(text){
+                var lower = String(text || '').toLowerCase();
+                return keywords.some(function(keyword){
+                    return keyword && lower.indexOf(keyword) >= 0;
+                });
+            });
+        }
+        if (!need && selected.length){
+            need = selected.some(function(rateId){
+                var entry = shippingCatalogById[rateId];
+                if (entry){
+                    var texts = [entry.label, entry.title, entry.method_title];
+                    return texts.some(function(text){
+                        if (!text) return false;
+                        var lower = String(text).toLowerCase();
+                        return keywords.some(function(keyword){
+                            return keyword && lower.indexOf(keyword) >= 0;
+                        });
+                    });
+                }
+                var base = String(rateId || '').split(':')[0];
+                if (base && Array.isArray(shippingCatalogByBase[base])){
+                    return shippingCatalogByBase[base].some(function(item){
+                        if (!item) return false;
+                        var texts = [item.label, item.title, item.method_title];
+                        return texts.some(function(text){
+                            if (!text) return false;
+                            var lower = String(text).toLowerCase();
+                            return keywords.some(function(keyword){
+                                return keyword && lower.indexOf(keyword) >= 0;
+                            });
+                        });
+                    });
+                }
+                return false;
+            });
+        }
+        return need;
+    }
+
+    function updatePsdVisibility(){
+        var $field = $('#gls-psd-field');
+        if (!$field.length) return;
+        var need = methodRequiresPsd();
+        if (need){
+            $field.stop(true, true).slideDown(150);
+            if (!$('#gls_psd_id').val() && !updatePsdVisibility._autoOpened){
+                updatePsdVisibility._autoOpened = true;
+                $('#gls-open-map').trigger('click');
+            }
+        } else {
+            $field.stop(true, true).slideUp(150);
+            updatePsdVisibility._autoOpened = false;
+            if (!$field.is(':visible')){
+                $('#gls_psd_id').val('');
+                $('input[name="gls_psd"]').val('');
+            }
+        }
+    }
+    updatePsdVisibility._autoOpened = false;
+
+    $(document.body).on('updated_checkout updated_shipping_method', function(){
+        setTimeout(updatePsdVisibility, 75);
     });
-});
+    $(document).on('change', '[name^="shipping_method"]', function(){
+        setTimeout(updatePsdVisibility, 50);
+    });
+    $(function(){
+        setTimeout(updatePsdVisibility, 100);
+        $('form.checkout').on('checkout_place_order', function(){
+            try {
+                var need = methodRequiresPsd();
+                if (need && !$('#gls_psd_id').val()){
+                    alert('Kérjük, válassz GLS Csomagpontot a térképen!');
+                    return false;
+                }
+            } catch(e){}
+            return true;
+        });
+    });
+})(jQuery);
