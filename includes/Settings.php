@@ -38,6 +38,7 @@ class Settings {
         add_settings_field('printer','Nyomtató típus (TypeOfPrinter)', [__CLASS__,'field_printer'],'woo_mygls','main');
         add_settings_field('pickup','Feladó adatai (PickupAddress)', [__CLASS__,'field_pickup'],'woo_mygls','main');
         add_settings_field('shipping_psd_methods','Csomagpont/Automata szállítási módok', [__CLASS__,'field_shipping_psd_methods'],'woo_mygls','main');
+        add_settings_field('api_test','API kapcsolat teszt', [__CLASS__,'field_api_test'],'woo_mygls','main');
         add_settings_field('status','Csomagstátusz szinkron', [__CLASS__,'field_status'],'woo_mygls','main');
     }
 
@@ -226,6 +227,11 @@ class Settings {
         if ($legacy){
             echo '<p class="description">'.sprintf(esc_html__('A következő korábban kijelölt szállítási módok már nem érhetők el: %s','woo-mygls'), esc_html(implode(', ', $legacy))).'</p>';
         }
+    }
+
+    public static function field_api_test(){
+        echo '<p><button type="button" class="button" id="woo-mygls-test-api">'.esc_html__('Kapcsolat tesztelése','woo-mygls').'</button></p>';
+        echo '<p id="woo-mygls-test-api-result" class="description" style="margin-top:4px"></p>';
     }
 
     public static function field_status(){

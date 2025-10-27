@@ -28,29 +28,36 @@
         $('#gls-list').css({height:'25%', overflow:'auto', border:'1px solid #e5e7eb', borderRadius:'8px', padding:'8px', fontSize:'13px'});
         // Load points
         $.getJSON(WOO_MYGLS.pointsUrl, function(data){
+            var points = [];
+            if (Array.isArray(data)) {
+                points = data;
+            } else if (data && Array.isArray(data.deliveryPoints)) {
+                points = data.deliveryPoints;
+            }
+
             var map = L.map('gls-map').setView([47.1625,19.5033], 7);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19}).addTo(map);
             var group = L.layerGroup().addTo(map);
             function add(point){
-                var lat = point.gpsLat || point.location?.lat;
-                var lon = point.gpsLong || point.location?.lng;
+                if (!point) {
+                    return;
+                }
+                var location = point.location || {};
+                var lat = point.gpsLat || location.lat || location.latitude || 0;
+                var lon = point.gpsLong || location.lng || location.lon || location.longitude || 0;
                 if (!lat || !lon) return;
                 var m = L.marker([lat,lon]).addTo(group);
                 m.bindPopup('<strong>'+point.name+'</strong><br>'+ (point.address||'') +'<br><button class="select-psd" data-id="'+(point.parcelShopId||point.parcelLockerId||point.id)+'" data-label="'+(point.name+' | '+(point.address||''))+'">Ezt választom</button>');
                 m.on('click', function(){ m.openPopup(); });
             }
-            if (data && data.length){
-                data.forEach(add);
-            } else if (data && data.deliveryPoints){
-                data.deliveryPoints.forEach(add);
-            }
+            points.forEach(add);
             // List
             var html = '<input type="text" id="gls-q" placeholder="Keresés város / név szerint..." style="width:100%;margin-bottom:6px">';
             html += '<div id="gls-ul"></div>';
             $('#gls-list').html(html);
             function renderList(q){
                 q = (q||'').toLowerCase();
-                var items = (data.deliveryPoints || data).filter(function(p){
+                var items = points.filter(function(p){
                     var s = ((p.name||'')+' '+(p.address||'')+' '+(p.city||'')).toLowerCase();
                     return s.indexOf(q)>=0;
                 }).slice(0,200);
@@ -182,9 +189,9 @@
                         if (entry.title && entry.title !== entry.label){ labels.push(entry.title); }
                         if (entry.method_title && entry.method_title !== entry.title && entry.method_title !== entry.label){ labels.push(entry.method_title); }
                     } else {
-                        var base = String(rateId || '').split(':')[0];
-                        if (base && Array.isArray(shippingCatalogByBase[base])){
-                            shippingCatalogByBase[base].forEach(function(item){
+                        var baseId = String(rateId || '').split(':')[0];
+                        if (baseId && Array.isArray(shippingCatalogByBase[baseId])){
+                            shippingCatalogByBase[baseId].forEach(function(item){
                                 if (!item) return;
                                 if (item.label){ labels.push(item.label); }
                                 if (item.title && item.title !== item.label){ labels.push(item.title); }
@@ -214,9 +221,9 @@
                         });
                     });
                 }
-                var base = String(rateId || '').split(':')[0];
-                if (base && Array.isArray(shippingCatalogByBase[base])){
-                    return shippingCatalogByBase[base].some(function(item){
+                var baseId = String(rateId || '').split(':')[0];
+                if (baseId && Array.isArray(shippingCatalogByBase[baseId])){
+                    return shippingCatalogByBase[baseId].some(function(item){
                         if (!item) return false;
                         var texts = [item.label, item.title, item.method_title];
                         return texts.some(function(text){
