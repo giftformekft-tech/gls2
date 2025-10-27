@@ -9,7 +9,7 @@ class Orders {
         add_filter('bulk_actions-woocommerce_page_wc-orders', [__CLASS__,'bulk_actions']);
         add_filter('handle_bulk_actions-edit-shop_order', [__CLASS__,'handle_bulk'], 10, 3);
         add_filter('handle_bulk_actions-woocommerce_page_wc-orders', [__CLASS__,'handle_bulk'], 10, 3);
-        add_action('woocommerce_admin_order_actions', [__CLASS__,'row_action'], 10, 2);
+        add_filter('woocommerce_admin_order_actions', [__CLASS__,'row_action'], 10, 2);
         add_action('wp_ajax_woo_mygls_create_label', [__CLASS__,'ajax_create_label']);
         add_action('wp_ajax_woo_mygls_delete_label', [__CLASS__,'ajax_delete_label']);
     }
@@ -75,12 +75,18 @@ class Orders {
     public static function ajax_delete_label(){
         if (!current_user_can('manage_woocommerce') || !wp_verify_nonce($_GET['_wpnonce'] ?? '', 'woo_mygls')) wp_die('forbidden');
         $order_id = (int)($_GET['order_id'] ?? 0);
-        $parcel = wc_get_order($order_id)->get_meta('_gls_parcel');
+        $order = wc_get_order($order_id);
+        if (!$order) wp_die('Rendelés nem található.');
+        $parcel = $order->get_meta('_gls_parcel');
         if (!$parcel || empty($parcel['id'])) wp_die('Nincs GLS parcel ehhez a rendeléshez.');
         $api = new API();
         $r = $api->delete_labels([$parcel['id']]);
         if (is_wp_error($r)) wp_die($r->get_error_message());
+        $order->delete_meta_data('_gls_parcel');
+        $order->delete_meta_data('_gls_parcelnumber');
         $order->update_meta_data('_gls_deleted', current_time('mysql'));
+        $order->add_order_note('GLS címke törölve az API-n keresztül.');
+        $order->save();
         wp_safe_redirect(wp_get_referer() ?: admin_url('post.php?post='.$order_id.'&action=edit'));
         exit;
     }
@@ -106,6 +112,7 @@ class Orders {
             $order->update_meta_data('_gls_parcelnumber', $res['info'][0]['number'] ?? '');
             $order->add_order_note('GLS címke létrehozva. ParcelNumber: '.($res['info'][0]['number'] ?? ''));
         }
+        $order->save();
         if ($return_pdf){
             return ['pdf' => $res['pdf'] ?? null];
         }

@@ -192,4 +192,53 @@ class API {
         ]);
         return $this->post('GetParcelStatuses', $req);
     }
+
+    public function test_connection(){
+        $settings = Settings::get();
+        if (empty($settings['username']) || empty($settings['password']) || empty($settings['client_number'])){
+            return new \WP_Error('gls_missing', __('Előbb add meg a GLS API felhasználónevet, jelszót és ügyfélszámot a mentéshez, majd próbáld újra.','woo-mygls'));
+        }
+        $req = array_merge($this->creds(), [
+            'ParcelNumber' => 0,
+            'ReturnPOD' => false,
+            'LanguageIsoCode' => 'HU'
+        ]);
+        $response = $this->post('GetParcelStatuses', $req);
+        if (is_wp_error($response)){
+            return $response;
+        }
+        $errors = [];
+        if (!empty($response['GetParcelStatusesErrorList']) && is_array($response['GetParcelStatusesErrorList'])){
+            $errors = $response['GetParcelStatusesErrorList'];
+        } elseif (!empty($response['ErrorList']) && is_array($response['ErrorList'])){
+            $errors = $response['ErrorList'];
+        }
+        if ($errors){
+            $first = $errors[0];
+            $code = is_array($first) ? ($first['ErrorCode'] ?? '') : '';
+            $desc = is_array($first) ? ($first['ErrorDescription'] ?? '') : '';
+            $message = trim(($code ? $code.' - ' : '').$desc);
+            $lowerDesc = strtolower($desc);
+            if (strpos($lowerDesc, 'auth') !== false || strpos($lowerDesc, 'login') !== false){
+                return new \WP_Error('gls_auth', $message ?: __('Hitelesítési hiba a GLS API-val.','woo-mygls'));
+            }
+            if (strpos($lowerDesc, 'not found') !== false || strpos($lowerDesc, 'nincs') !== false || strpos($lowerDesc, 'nem található') !== false){
+                return [
+                    'success' => true,
+                    'warning' => false,
+                    'message' => __('Kapcsolat sikeres. A teszt küldemény nem található, ez várható viselkedés.','woo-mygls'),
+                ];
+            }
+            return [
+                'success' => true,
+                'warning' => true,
+                'message' => sprintf(__('Kapcsolat sikeres, de a GLS ezt válaszolta: %s','woo-mygls'), $message ?: __('Ismeretlen hiba','woo-mygls')),
+            ];
+        }
+        return [
+            'success' => true,
+            'warning' => false,
+            'message' => __('Kapcsolat sikeres.','woo-mygls'),
+        ];
+    }
 }
