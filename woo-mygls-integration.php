@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WooCommerce MyGLS Pro (HU) — ParcelShop + Labels + Status
  * Description: Teljes MyGLS integráció WooCommerce-hez: Csomagpont/Automata térképes választó, automata és bulk címkegenerálás (PDF/ZPL), csomagstátusz szinkron, rendelés műveletek.
- * Version: 1.1.3
+ * Version: 1.1.4
  * Author: Forme.hu x ChatGPT
  * Requires at least: 6.4
  * Requires PHP: 8.1
@@ -13,7 +13,7 @@
 
 if (!defined('ABSPATH')) { exit; }
 
-define('WOO_MYGLS_VERSION', '1.1.3');
+define('WOO_MYGLS_VERSION', '1.1.4');
 define('WOO_MYGLS_DIR', plugin_dir_path(__FILE__));
 define('WOO_MYGLS_URL', plugin_dir_url(__FILE__));
 
