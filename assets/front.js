@@ -1,4 +1,23 @@
 (function($){
+    var shippingCatalog = Array.isArray(window.WOO_MYGLS && window.WOO_MYGLS.shippingCatalog) ? window.WOO_MYGLS.shippingCatalog : [];
+    var shippingCatalogById = {};
+    var shippingCatalogByBase = {};
+    shippingCatalog.forEach(function(entry){
+        if (!entry || !entry.id) {
+            return;
+        }
+        var id = String(entry.id);
+        shippingCatalogById[id] = entry;
+        var base = String(entry.base || '');
+        if (base) {
+            if (!shippingCatalogByBase[base]) {
+                shippingCatalogByBase[base] = [];
+            }
+            shippingCatalogByBase[base].push(entry);
+        }
+    });
+    var shippingKeywords = ['csomagpont','automata','parcel','gls'];
+
     function initModal(){
         var $m = $('#gls-map-modal');
         if ($m.data('ready')) return;
@@ -95,9 +114,32 @@
             if (($el.is(':radio') || $el.is(':checkbox')) && !$el.is(':checked')){
                 return;
             }
-            var label = $el.closest('li').find('label').first().text();
+            var label = '';
+            var $container = $el.closest('li');
+            if ($el.attr('id')){
+                var forSelector = 'label[for="'+$el.attr('id')+'"]';
+                var $label = $(forSelector).first();
+                if ($label.length){
+                    label = $label.text();
+                }
+            }
+            if (!label && $container.length){
+                var $alt = $container.find('.woocommerce-shipping-method__label, .wc-block-components-radio-control__label').first();
+                if ($alt.length){
+                    label = $alt.text();
+                }
+            }
+            if (!label){
+                var labelledBy = $el.attr('aria-labelledby');
+                if (labelledBy){
+                    label = $('#'+labelledBy).text();
+                }
+            }
+            if (!label && $container.length){
+                label = $container.text();
+            }
             if (label){
-                labels.push(label);
+                labels.push($.trim(label));
             }
         });
         return labels;
@@ -109,6 +151,7 @@
         var configuredBase = configured.map(function(v){
             return String(v || '').split(':')[0];
         }).filter(function(v){ return v; });
+        var keywords = shippingKeywords;
         var need = false;
         if (selected.length){
             if (configured.length){
@@ -122,16 +165,70 @@
             }
             if (!need){
                 need = selected.some(function(v){
-                    var val = String(v || '').toLowerCase();
-                    return val.indexOf('csomagpont') >= 0 || val.indexOf('automata') >= 0 || val.indexOf('parcel') >= 0;
+                    var lower = String(v || '').toLowerCase();
+                    return keywords.some(function(keyword){
+                        return keyword && lower.indexOf(keyword) >= 0;
+                    });
                 });
             }
         }
         if (!need){
             var labels = getSelectedShippingLabels();
+            if (!labels.length && selected.length){
+                selected.forEach(function(rateId){
+                    var entry = shippingCatalogById[rateId];
+                    if (entry){
+                        if (entry.label){ labels.push(entry.label); }
+                        if (entry.title && entry.title !== entry.label){ labels.push(entry.title); }
+                        if (entry.method_title && entry.method_title !== entry.title && entry.method_title !== entry.label){ labels.push(entry.method_title); }
+                    } else {
+                        var base = String(rateId || '').split(':')[0];
+                        if (base && Array.isArray(shippingCatalogByBase[base])){
+                            shippingCatalogByBase[base].forEach(function(item){
+                                if (!item) return;
+                                if (item.label){ labels.push(item.label); }
+                                if (item.title && item.title !== item.label){ labels.push(item.title); }
+                                if (item.method_title && item.method_title !== item.title && item.method_title !== item.label){ labels.push(item.method_title); }
+                            });
+                        }
+                    }
+                });
+            }
             need = labels.some(function(text){
-                var lower = text.toLowerCase();
-                return lower.indexOf('csomagpont') >= 0 || lower.indexOf('automata') >= 0 || lower.indexOf('parcel') >= 0;
+                var lower = String(text || '').toLowerCase();
+                return keywords.some(function(keyword){
+                    return keyword && lower.indexOf(keyword) >= 0;
+                });
+            });
+        }
+        if (!need && selected.length){
+            need = selected.some(function(rateId){
+                var entry = shippingCatalogById[rateId];
+                if (entry){
+                    var texts = [entry.label, entry.title, entry.method_title];
+                    return texts.some(function(text){
+                        if (!text) return false;
+                        var lower = String(text).toLowerCase();
+                        return keywords.some(function(keyword){
+                            return keyword && lower.indexOf(keyword) >= 0;
+                        });
+                    });
+                }
+                var base = String(rateId || '').split(':')[0];
+                if (base && Array.isArray(shippingCatalogByBase[base])){
+                    return shippingCatalogByBase[base].some(function(item){
+                        if (!item) return false;
+                        var texts = [item.label, item.title, item.method_title];
+                        return texts.some(function(text){
+                            if (!text) return false;
+                            var lower = String(text).toLowerCase();
+                            return keywords.some(function(keyword){
+                                return keyword && lower.indexOf(keyword) >= 0;
+                            });
+                        });
+                    });
+                }
+                return false;
             });
         }
         return need;

@@ -69,6 +69,67 @@ class Settings {
         return $input;
     }
 
+    public static function get_shipping_method_catalog(){
+        if (!class_exists('\\WC_Shipping_Zones')){
+            return [];
+        }
+
+        $options = [];
+        $zones = \WC_Shipping_Zones::get_zones();
+
+        $default_zone = new \WC_Shipping_Zone(0);
+        $zones[] = [
+            'zone_name' => __('Alapértelmezett zóna','woo-mygls'),
+            'shipping_methods' => $default_zone->get_shipping_methods(),
+        ];
+
+        foreach ($zones as $zone){
+            if (empty($zone['shipping_methods'])){
+                continue;
+            }
+            $zone_name = $zone['zone_name'] ?? __('Ismeretlen zóna','woo-mygls');
+            foreach ($zone['shipping_methods'] as $method){
+                if (!is_object($method)){
+                    continue;
+                }
+                $method_id = '';
+                if (method_exists($method, 'get_method_id')) {
+                    $method_id = (string) $method->get_method_id();
+                } elseif (isset($method->method_id)) {
+                    $method_id = (string) $method->method_id;
+                } elseif (isset($method->id)) {
+                    $method_id = (string) $method->id;
+                }
+
+                if ($method_id === '') {
+                    continue;
+                }
+
+                $instance_id = 0;
+                if (method_exists($method, 'get_instance_id')) {
+                    $instance_id = (int) $method->get_instance_id();
+                } elseif (isset($method->instance_id)) {
+                    $instance_id = (int) $method->instance_id;
+                }
+
+                $rate_id = $instance_id > 0 ? sprintf('%s:%d', $method_id, $instance_id) : $method_id;
+                $title = method_exists($method, 'get_title') ? $method->get_title() : ($method->title ?? '');
+                $method_title = method_exists($method, 'get_method_title') ? $method->get_method_title() : ($method->method_title ?? '');
+                $label = sprintf('%s — %s (%s)', $zone_name, $title ?: $method_title, $method_title ?: ($method->id ?? $rate_id));
+                $options[$rate_id] = [
+                    'label' => $label,
+                    'zone' => $zone_name,
+                    'title' => $title ?: $method_title,
+                    'method_title' => $method_title ?: ($method->id ?? $rate_id),
+                    'method_id' => $method_id,
+                    'instance_id' => $instance_id,
+                ];
+            }
+        }
+
+        return $options;
+    }
+
     public static function page(){
         echo '<div class="wrap"><h1>MyGLS integráció</h1><form method="post" action="options.php">';
         settings_fields('woo_mygls');
@@ -141,66 +202,30 @@ class Settings {
             return $parts[0];
         }, $selected);
 
-        $options = [];
-        $zones = \WC_Shipping_Zones::get_zones();
-
-        $default_zone = new \WC_Shipping_Zone(0);
-        $zones[] = [
-            'zone_name' => __('Alapértelmezett zóna','woo-mygls'),
-            'shipping_methods' => $default_zone->get_shipping_methods(),
-        ];
-
-        foreach ($zones as $zone){
-            if (empty($zone['shipping_methods'])){
-                continue;
-            }
-            $zone_name = $zone['zone_name'] ?? __('Ismeretlen zóna','woo-mygls');
-            foreach ($zone['shipping_methods'] as $method){
-                if (!is_object($method)){
-                    continue;
-                }
-                $method_id = '';
-                if (method_exists($method, 'get_method_id')) {
-                    $method_id = (string) $method->get_method_id();
-                } elseif (isset($method->method_id)) {
-                    $method_id = (string) $method->method_id;
-                } elseif (isset($method->id)) {
-                    $method_id = (string) $method->id;
-                }
-
-                if ($method_id === '') {
-                    continue;
-                }
-
-                $instance_id = 0;
-                if (method_exists($method, 'get_instance_id')) {
-                    $instance_id = (int) $method->get_instance_id();
-                } elseif (isset($method->instance_id)) {
-                    $instance_id = (int) $method->instance_id;
-                }
-
-                $rate_id = $instance_id > 0 ? sprintf('%s:%d', $method_id, $instance_id) : $method_id;
-                $title = method_exists($method, 'get_title') ? $method->get_title() : ($method->title ?? '');
-                $method_title = method_exists($method, 'get_method_title') ? $method->get_method_title() : ($method->method_title ?? '');
-                $label = sprintf('%s — %s (%s)', $zone_name, $title ?: $method_title, $method_title ?: ($method->id ?? $rate_id));
-                $options[$rate_id] = $label;
-            }
-        }
+        $options = self::get_shipping_method_catalog();
 
         if (!$options){
             echo '<p>'.esc_html__('Még nem állítottál be szállítási módokat a WooCommerce-ben.','woo-mygls').'</p>';
             return;
         }
 
-        echo '<select name="'.self::OPTION_KEY.'[shipping_psd_methods][]" multiple size="8" style="min-width:420px">';
-        foreach ($options as $value => $label){
+        echo '<fieldset class="woo-mygls-shipping-psd">';
+        foreach ($options as $value => $data){
             $value_attr = esc_attr($value);
-            $label_html = esc_html($label);
-            $selected_attr = (in_array($value, $selected, true) || in_array(explode(':', $value, 2)[0], $selected_base, true)) ? 'selected' : '';
-            echo '<option value="'.$value_attr.'" '.$selected_attr.'>'.$label_html.'</option>';
+            $label_html = esc_html($data['label']);
+            $is_checked = in_array($value, $selected, true) || in_array($data['method_id'], $selected_base, true);
+            echo '<label style="display:block;margin:6px 0 10px">';
+            echo '<input type="checkbox" name="'.self::OPTION_KEY.'[shipping_psd_methods][]" value="'.$value_attr.'" '.checked($is_checked, true, false).'>'; 
+            echo ' '.$label_html;
+            echo '</label>';
         }
-        echo '</select>';
-        echo '<p class="description">'.esc_html__('Válaszd ki azokat a WooCommerce szállítási módokat, amelyek GLS Csomagpontot vagy automatát igényelnek. Többet is kijelölhetsz (Ctrl vagy Command).','woo-mygls').'</p>';
+        echo '</fieldset>';
+        echo '<p class="description">'.esc_html__('Pipáld ki azokat a szállítási módokat, amelyekhez kötelező a GLS Csomagpont vagy automata kiválasztása a vásárlónak.','woo-mygls').'</p>';
+
+        $legacy = array_diff($selected, array_keys($options));
+        if ($legacy){
+            echo '<p class="description">'.sprintf(esc_html__('A következő korábban kijelölt szállítási módok már nem érhetők el: %s','woo-mygls'), esc_html(implode(', ', $legacy))).'</p>';
+        }
     }
 
     public static function field_status(){

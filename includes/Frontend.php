@@ -21,11 +21,23 @@ class Frontend {
             wp_enqueue_style('leaflet', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', [], '1.9.4');
             wp_enqueue_script('leaflet', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', [], '1.9.4', true);
             wp_enqueue_script('woo-mygls-front', WOO_MYGLS_URL.'assets/front.js', ['jquery','leaflet'], WOO_MYGLS_VERSION, true);
+            $catalog = Settings::get_shipping_method_catalog();
+            $catalog_payload = [];
+            foreach ($catalog as $rate_id => $data) {
+                $catalog_payload[] = [
+                    'id' => (string) $rate_id,
+                    'base' => (string) ($data['method_id'] ?? ''),
+                    'label' => (string) ($data['label'] ?? ''),
+                    'title' => (string) ($data['title'] ?? ''),
+                    'method_title' => (string) ($data['method_title'] ?? ''),
+                ];
+            }
             wp_localize_script('woo-mygls-front','WOO_MYGLS', [
                 'ajax' => admin_url('admin-ajax.php'),
                 'nonce' => wp_create_nonce('woo_mygls'),
                 'pointsUrl' => 'https://map.gls-hungary.com/data/deliveryPoints/hu.json',
                 'shippingMethods' => array_values(array_unique(array_map('strval', $configured_methods))),
+                'shippingCatalog' => $catalog_payload,
             ]);
             wp_enqueue_style('woo-mygls-front', WOO_MYGLS_URL.'assets/front.css', [], WOO_MYGLS_VERSION);
         }
@@ -96,6 +108,17 @@ class Frontend {
             $parts = explode(':', (string) $id, 2);
             return trim($parts[0]);
         }, $configured)));
+        $catalog = Settings::get_shipping_method_catalog();
+        $catalog_by_base = [];
+        foreach ($catalog as $rate_id => $info) {
+            $base_id = (string) ($info['method_id'] ?? '');
+            if ($base_id !== '') {
+                if (!isset($catalog_by_base[$base_id])) {
+                    $catalog_by_base[$base_id] = [];
+                }
+                $catalog_by_base[$base_id][] = $info;
+            }
+        }
 
         if ($selected_methods && $configured){
             foreach ($selected_methods as $method){
@@ -111,12 +134,48 @@ class Frontend {
             }
         }
 
+        $keywords = ['csomagpont','automata','parcel','gls'];
+
         if (!$need_psd && $selected_methods){
             foreach ($selected_methods as $method){
                 $sm_l = strtolower($method);
-                if (strpos($sm_l,'csomagpont')!==false || strpos($sm_l,'automata')!==false || strpos($sm_l,'parcel')!==false){
-                    $need_psd = true;
-                    break;
+                foreach ($keywords as $keyword) {
+                    if ($keyword !== '' && strpos($sm_l, $keyword) !== false) {
+                        $need_psd = true;
+                        break 2;
+                    }
+                }
+                $base = explode(':', (string) $method, 2)[0] ?? '';
+                if ($base) {
+                    $base_l = strtolower($base);
+                    foreach ($keywords as $keyword) {
+                        if ($keyword !== '' && strpos($base_l, $keyword) !== false) {
+                            $need_psd = true;
+                            break 2;
+                        }
+                    }
+                }
+                if ($base && !empty($catalog_by_base[$base])) {
+                    foreach ($catalog_by_base[$base] as $info) {
+                        $title_l = strtolower($info['title'] ?? '');
+                        $method_title_l = strtolower($info['method_title'] ?? '');
+                        foreach ($keywords as $keyword) {
+                            if (($title_l && strpos($title_l, $keyword) !== false) || ($method_title_l && strpos($method_title_l, $keyword) !== false)) {
+                                $need_psd = true;
+                                break 3;
+                            }
+                        }
+                    }
+                }
+                if (isset($catalog[$method])) {
+                    $title_l = strtolower($catalog[$method]['title'] ?? '');
+                    $method_title_l = strtolower($catalog[$method]['method_title'] ?? '');
+                    foreach ($keywords as $keyword) {
+                        if (($title_l && strpos($title_l, $keyword) !== false) || ($method_title_l && strpos($method_title_l, $keyword) !== false)) {
+                            $need_psd = true;
+                            break 2;
+                        }
+                    }
                 }
             }
         }
