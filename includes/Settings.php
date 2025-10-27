@@ -135,6 +135,11 @@ class Settings {
         if (!is_array($selected)){
             $selected = [];
         }
+        $selected = array_values(array_map('strval', $selected));
+        $selected_base = array_map(function($id){
+            $parts = explode(':', (string) $id, 2);
+            return $parts[0];
+        }, $selected);
 
         $options = [];
         $zones = \WC_Shipping_Zones::get_zones();
@@ -154,10 +159,27 @@ class Settings {
                 if (!is_object($method)){
                     continue;
                 }
-                $rate_id = method_exists($method, 'get_rate_id') ? $method->get_rate_id() : ($method->id ?? null);
-                if (!$rate_id){
+                $method_id = '';
+                if (method_exists($method, 'get_method_id')) {
+                    $method_id = (string) $method->get_method_id();
+                } elseif (isset($method->method_id)) {
+                    $method_id = (string) $method->method_id;
+                } elseif (isset($method->id)) {
+                    $method_id = (string) $method->id;
+                }
+
+                if ($method_id === '') {
                     continue;
                 }
+
+                $instance_id = 0;
+                if (method_exists($method, 'get_instance_id')) {
+                    $instance_id = (int) $method->get_instance_id();
+                } elseif (isset($method->instance_id)) {
+                    $instance_id = (int) $method->instance_id;
+                }
+
+                $rate_id = $instance_id > 0 ? sprintf('%s:%d', $method_id, $instance_id) : $method_id;
                 $title = method_exists($method, 'get_title') ? $method->get_title() : ($method->title ?? '');
                 $method_title = method_exists($method, 'get_method_title') ? $method->get_method_title() : ($method->method_title ?? '');
                 $label = sprintf('%s — %s (%s)', $zone_name, $title ?: $method_title, $method_title ?: ($method->id ?? $rate_id));
@@ -174,7 +196,7 @@ class Settings {
         foreach ($options as $value => $label){
             $value_attr = esc_attr($value);
             $label_html = esc_html($label);
-            $selected_attr = in_array($value, $selected, true) ? 'selected' : '';
+            $selected_attr = (in_array($value, $selected, true) || in_array(explode(':', $value, 2)[0], $selected_base, true)) ? 'selected' : '';
             echo '<option value="'.$value_attr.'" '.$selected_attr.'>'.$label_html.'</option>';
         }
         echo '</select>';

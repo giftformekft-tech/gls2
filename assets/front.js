@@ -106,10 +106,19 @@
     function methodRequiresPsd(){
         var selected = getSelectedShippingMethods();
         var configured = Array.isArray(WOO_MYGLS.shippingMethods) ? WOO_MYGLS.shippingMethods : [];
+        var configuredBase = configured.map(function(v){
+            return String(v || '').split(':')[0];
+        }).filter(function(v){ return v; });
         var need = false;
         if (selected.length){
             if (configured.length){
-                need = selected.some(function(v){ return configured.indexOf(v) !== -1; });
+                need = selected.some(function(v){
+                    if (configured.indexOf(v) !== -1) {
+                        return true;
+                    }
+                    var base = String(v || '').split(':')[0];
+                    return base && configuredBase.indexOf(base) !== -1;
+                });
             }
             if (!need){
                 need = selected.some(function(v){

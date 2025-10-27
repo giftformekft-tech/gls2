@@ -91,10 +91,20 @@ class Frontend {
         if (!is_array($configured)){
             $configured = [];
         }
+        $configured = array_values(array_filter(array_map('strval', $configured)));
+        $configured_base = array_values(array_unique(array_map(function($id){
+            $parts = explode(':', (string) $id, 2);
+            return trim($parts[0]);
+        }, $configured)));
 
         if ($selected_methods && $configured){
             foreach ($selected_methods as $method){
                 if (in_array($method, $configured, true)){
+                    $need_psd = true;
+                    break;
+                }
+                $base = explode(':', (string) $method, 2)[0] ?? '';
+                if ($base && in_array($base, $configured_base, true)){
                     $need_psd = true;
                     break;
                 }
