@@ -59,23 +59,47 @@ class Frontend {
             update_post_meta($order_id,'_gls_psd_id', sanitize_text_field($_POST['gls_psd_id']));
             update_post_meta($order_id,'_gls_psd_label', sanitize_text_field($_POST['gls_psd'] ?? ''));
         }
-    
+
+    }
+
     public static function validate_psd(){
         // Determine selected shipping method (supports multiple packages; check all)
-        $need_psd = false;
-        if (!empty($_POST['shipping_method']) && is_array($_POST['shipping_method'])){
-            foreach($_POST['shipping_method'] as $sm){
-                $sm_l = strtolower((string)$sm);
-                if (strpos($sm_l,'csomagpont')!==false || strpos($sm_l,'automata')!==false || strpos($sm_l,'parcel')!==false){
-                    $need_psd = true; break;
+        $selected_methods = [];
+        if (!empty($_POST['shipping_method'])){
+            if (is_array($_POST['shipping_method'])){
+                foreach ($_POST['shipping_method'] as $sm){
+                    $selected_methods[] = sanitize_text_field((string)$sm);
                 }
-            }
-        } elseif (!empty($_POST['shipping_method'])) {
-            $sm_l = strtolower((string)$_POST['shipping_method']);
-            if (strpos($sm_l,'csomagpont')!==false || strpos($sm_l,'automata')!==false || strpos($sm_l,'parcel')!==false){
-                $need_psd = true;
+            } else {
+                $selected_methods[] = sanitize_text_field((string)$_POST['shipping_method']);
             }
         }
+
+        $need_psd = false;
+        $configured = Settings::get('shipping_psd_methods', []);
+        if (!is_array($configured)){
+            $configured = [];
+        }
+
+        if ($selected_methods && $configured){
+            foreach ($selected_methods as $method){
+                if (in_array($method, $configured, true)){
+                    $need_psd = true;
+                    break;
+                }
+            }
+        }
+
+        if (!$need_psd && $selected_methods){
+            foreach ($selected_methods as $method){
+                $sm_l = strtolower($method);
+                if (strpos($sm_l,'csomagpont')!==false || strpos($sm_l,'automata')!==false || strpos($sm_l,'parcel')!==false){
+                    $need_psd = true;
+                    break;
+                }
+            }
+        }
+
         if ($need_psd){
             $psd_id = sanitize_text_field($_POST['gls_psd_id'] ?? '');
             if (!$psd_id){
