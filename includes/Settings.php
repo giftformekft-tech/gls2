@@ -19,13 +19,14 @@ class Settings {
             'pickup' => ['name'=>'','street'=>'','housenumber'=>'','city'=>'','zip'=>'','country'=>'HU','contact'=>'','phone'=>'','email'=>''],
             'enable_status_sync' => 1,
             'status_sync_interval' => 'hourly',
+            'shipping_psd_methods' => [],
         ]);
         if ($key === null) return $opt;
         return $opt[$key] ?? $default;
     }
 
     public static function register(){
-        register_setting('woo_mygls', self::OPTION_KEY);
+        register_setting('woo_mygls', self::OPTION_KEY, ['sanitize_callback' => [__CLASS__,'sanitize']]);
         add_settings_section('main','MyGLS beállítások', function(){
             echo '<p>Állítsd be a MyGLS API adataidat. A jelszót a plugin SHA512-re hash-eli és bájttömbként küldi.</p>';
         }, 'woo_mygls');
@@ -36,7 +37,36 @@ class Settings {
         add_settings_field('client_number','Ügyfélszám (ClientNumber)', [__CLASS__,'field_text'],'woo_mygls','main',['key'=>'client_number']);
         add_settings_field('printer','Nyomtató típus (TypeOfPrinter)', [__CLASS__,'field_printer'],'woo_mygls','main');
         add_settings_field('pickup','Feladó adatai (PickupAddress)', [__CLASS__,'field_pickup'],'woo_mygls','main');
+        add_settings_field('shipping_psd_methods','Csomagpont/Automata szállítási módok', [__CLASS__,'field_shipping_psd_methods'],'woo_mygls','main');
         add_settings_field('status','Csomagstátusz szinkron', [__CLASS__,'field_status'],'woo_mygls','main');
+    }
+
+    public static function sanitize($input){
+        if (!is_array($input)) return [];
+
+        if (empty($input['enable_status_sync'])){
+            $input['enable_status_sync'] = 0;
+        }
+
+        foreach (['env','username','password','client_number','type_of_printer','webshop_engine','status_sync_interval'] as $field){
+            if (isset($input[$field])){
+                $input[$field] = sanitize_text_field($input[$field]);
+            }
+        }
+
+        if (!empty($input['pickup']) && is_array($input['pickup'])){
+            foreach ($input['pickup'] as $key => $value){
+                $input['pickup'][$key] = sanitize_text_field($value);
+            }
+        }
+
+        if (!empty($input['shipping_psd_methods']) && is_array($input['shipping_psd_methods'])){
+            $input['shipping_psd_methods'] = array_values(array_unique(array_map('sanitize_text_field', $input['shipping_psd_methods'])));
+        } else {
+            $input['shipping_psd_methods'] = [];
+        }
+
+        return $input;
     }
 
     public static function page(){
@@ -93,6 +123,84 @@ class Settings {
         $f('contact','Kapcsolattartó');
         $f('phone','Telefon (+36...)');
         $f('email','E-mail');
+    }
+
+    public static function field_shipping_psd_methods(){
+        if (!class_exists('\\WC_Shipping_Zones')){
+            echo '<p>'.esc_html__('WooCommerce szállítás nem érhető el.','woo-mygls').'</p>';
+            return;
+        }
+
+        $selected = self::get('shipping_psd_methods', []);
+        if (!is_array($selected)){
+            $selected = [];
+        }
+        $selected = array_values(array_map('strval', $selected));
+        $selected_base = array_map(function($id){
+            $parts = explode(':', (string) $id, 2);
+            return $parts[0];
+        }, $selected);
+
+        $options = [];
+        $zones = \WC_Shipping_Zones::get_zones();
+
+        $default_zone = new \WC_Shipping_Zone(0);
+        $zones[] = [
+            'zone_name' => __('Alapértelmezett zóna','woo-mygls'),
+            'shipping_methods' => $default_zone->get_shipping_methods(),
+        ];
+
+        foreach ($zones as $zone){
+            if (empty($zone['shipping_methods'])){
+                continue;
+            }
+            $zone_name = $zone['zone_name'] ?? __('Ismeretlen zóna','woo-mygls');
+            foreach ($zone['shipping_methods'] as $method){
+                if (!is_object($method)){
+                    continue;
+                }
+                $method_id = '';
+                if (method_exists($method, 'get_method_id')) {
+                    $method_id = (string) $method->get_method_id();
+                } elseif (isset($method->method_id)) {
+                    $method_id = (string) $method->method_id;
+                } elseif (isset($method->id)) {
+                    $method_id = (string) $method->id;
+                }
+
+                if ($method_id === '') {
+                    continue;
+                }
+
+                $instance_id = 0;
+                if (method_exists($method, 'get_instance_id')) {
+                    $instance_id = (int) $method->get_instance_id();
+                } elseif (isset($method->instance_id)) {
+                    $instance_id = (int) $method->instance_id;
+                }
+
+                $rate_id = $instance_id > 0 ? sprintf('%s:%d', $method_id, $instance_id) : $method_id;
+                $title = method_exists($method, 'get_title') ? $method->get_title() : ($method->title ?? '');
+                $method_title = method_exists($method, 'get_method_title') ? $method->get_method_title() : ($method->method_title ?? '');
+                $label = sprintf('%s — %s (%s)', $zone_name, $title ?: $method_title, $method_title ?: ($method->id ?? $rate_id));
+                $options[$rate_id] = $label;
+            }
+        }
+
+        if (!$options){
+            echo '<p>'.esc_html__('Még nem állítottál be szállítási módokat a WooCommerce-ben.','woo-mygls').'</p>';
+            return;
+        }
+
+        echo '<select name="'.self::OPTION_KEY.'[shipping_psd_methods][]" multiple size="8" style="min-width:420px">';
+        foreach ($options as $value => $label){
+            $value_attr = esc_attr($value);
+            $label_html = esc_html($label);
+            $selected_attr = (in_array($value, $selected, true) || in_array(explode(':', $value, 2)[0], $selected_base, true)) ? 'selected' : '';
+            echo '<option value="'.$value_attr.'" '.$selected_attr.'>'.$label_html.'</option>';
+        }
+        echo '</select>';
+        echo '<p class="description">'.esc_html__('Válaszd ki azokat a WooCommerce szállítási módokat, amelyek GLS Csomagpontot vagy automatát igényelnek. Többet is kijelölhetsz (Ctrl vagy Command).','woo-mygls').'</p>';
     }
 
     public static function field_status(){
