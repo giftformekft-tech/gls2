@@ -59,24 +59,113 @@
         initModal();
         $('#gls-map-modal').show();
     });
-})(jQuery);
-// Client-side guard: require PSD if GLS Csomagpont/Automata selected
-jQuery(function($){
-    $('form.checkout').on('checkout_place_order', function(){
-        try {
-            var need = false;
-            // Read selected shipping labels/ids
-            $('[name^="shipping_method"]').each(function(){
-                var v = ($(this).val()||'').toLowerCase();
-                if (v.indexOf('csomagpont')>=0 || v.indexOf('automata')>=0 || v.indexOf('parcel')>=0) {
-                    need = true;
+
+    function getSelectedShippingMethods(){
+        var out = [];
+        $('[name^="shipping_method"]').each(function(){
+            var $el = $(this);
+            var tag = ($el.prop('tagName') || '').toLowerCase();
+            if ($el.is(':radio') || $el.is(':checkbox')){
+                if ($el.is(':checked')){
+                    out.push(String($el.val() || ''));
                 }
-            });
-            if (need && !$('#gls_psd_id').val()){
-                alert('Kérjük, válassz GLS Csomagpontot a térképen!');
-                return false;
+                return;
             }
-        } catch(e){}
-        return true;
+            if (tag === 'select'){
+                var val = $el.val();
+                if (Array.isArray(val)){
+                    val.forEach(function(v){ out.push(String(v || '')); });
+                } else if (val){
+                    out.push(String(val));
+                }
+                return;
+            }
+            var value = $el.val();
+            if (value){
+                out.push(String(value));
+            }
+        });
+        return out;
+    }
+
+    function getSelectedShippingLabels(){
+        var labels = [];
+        $('[name^="shipping_method"]').each(function(){
+            var $el = $(this);
+            if (($el.is(':radio') || $el.is(':checkbox')) && !$el.is(':checked')){
+                return;
+            }
+            var label = $el.closest('li').find('label').first().text();
+            if (label){
+                labels.push(label);
+            }
+        });
+        return labels;
+    }
+
+    function methodRequiresPsd(){
+        var selected = getSelectedShippingMethods();
+        var configured = Array.isArray(WOO_MYGLS.shippingMethods) ? WOO_MYGLS.shippingMethods : [];
+        var need = false;
+        if (selected.length){
+            if (configured.length){
+                need = selected.some(function(v){ return configured.indexOf(v) !== -1; });
+            }
+            if (!need){
+                need = selected.some(function(v){
+                    var val = String(v || '').toLowerCase();
+                    return val.indexOf('csomagpont') >= 0 || val.indexOf('automata') >= 0 || val.indexOf('parcel') >= 0;
+                });
+            }
+        }
+        if (!need){
+            var labels = getSelectedShippingLabels();
+            need = labels.some(function(text){
+                var lower = text.toLowerCase();
+                return lower.indexOf('csomagpont') >= 0 || lower.indexOf('automata') >= 0 || lower.indexOf('parcel') >= 0;
+            });
+        }
+        return need;
+    }
+
+    function updatePsdVisibility(){
+        var $field = $('#gls-psd-field');
+        if (!$field.length) return;
+        var need = methodRequiresPsd();
+        if (need){
+            $field.stop(true, true).slideDown(150);
+            if (!$('#gls_psd_id').val() && !updatePsdVisibility._autoOpened){
+                updatePsdVisibility._autoOpened = true;
+                $('#gls-open-map').trigger('click');
+            }
+        } else {
+            $field.stop(true, true).slideUp(150);
+            updatePsdVisibility._autoOpened = false;
+            if (!$field.is(':visible')){
+                $('#gls_psd_id').val('');
+                $('input[name="gls_psd"]').val('');
+            }
+        }
+    }
+    updatePsdVisibility._autoOpened = false;
+
+    $(document.body).on('updated_checkout updated_shipping_method', function(){
+        setTimeout(updatePsdVisibility, 75);
     });
-});
+    $(document).on('change', '[name^="shipping_method"]', function(){
+        setTimeout(updatePsdVisibility, 50);
+    });
+    $(function(){
+        setTimeout(updatePsdVisibility, 100);
+        $('form.checkout').on('checkout_place_order', function(){
+            try {
+                var need = methodRequiresPsd();
+                if (need && !$('#gls_psd_id').val()){
+                    alert('Kérjük, válassz GLS Csomagpontot a térképen!');
+                    return false;
+                }
+            } catch(e){}
+            return true;
+        });
+    });
+})(jQuery);
